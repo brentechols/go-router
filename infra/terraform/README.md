@@ -94,4 +94,18 @@ The second apply replaces the L4 frontend address with the reserved internal Ing
 
 Both GKE and Cloud SQL deletion protection default to true. To intentionally tear down the reference stack, set `cluster_deletion_protection=false` and `database_deletion_protection=false`, apply that change, and only then destroy the remaining resources.
 
+Cloud SQL private-IP teardown is necessarily a two-phase operation. Google can retain the deleted instance's service-producer resources for four days so the instance can be recovered. During that retention window, the first destroy removes the billable GKE, Cloud SQL, load-balancer, NAT, DNS, and registry resources, but can fail while deleting `google_service_networking_connection.private_services` with a message that producer services still use the connection. Preserve the Terraform state and rerun a fresh destroy plan after the producer route disappears:
+
+```sh
+gcloud compute routes list \
+  --project=MY_PROJECT \
+  --filter="nextHopPeering:servicenetworking-googleapis-com"
+
+terraform plan -destroy -out=destroy-final.tfplan
+terraform apply destroy-final.tfplan
+terraform state list
+```
+
+Do not delete the underlying Compute VPC peering directly, remove the connection from state, or reuse a partially applied saved plan. Google documents both the retention period and the supported private-connection deletion flow in [Configure private services access](https://cloud.google.com/vpc/docs/configure-private-services-access#delete-a-private-connection). The residual VPC, private services connection, and internal allocated range have no hourly charge while the producer cleanup completes.
+
 For production, also consider `database_availability_type="REGIONAL"`, organization-specific backup retention, alerting, authorized control-plane networks, network policy, and a deliberate certificate lifecycle.
