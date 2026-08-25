@@ -4,6 +4,8 @@ An open-source, self-hosted service for memorable internal links. Create `go/doc
 
 > go-router is an independent project. It is not affiliated with, endorsed by, or sponsored by GoLinks, Inc. or golinks.io. “GoLinks” may be a trademark of its respective owner.
 
+![go-router route directory showing searchable shortcuts, destinations, tags, usage, and edit controls](docs/assets/go-router-admin.png)
+
 go-router keeps the useful core small: one TypeScript service, one React manager, and PostgreSQL. It is designed for a trusted internal network and intentionally does **not** include authentication, SSO, per-user ownership, audit logs, visibility policies, or other enterprise controls.
 
 ## What it includes
