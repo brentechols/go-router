@@ -1,0 +1,27 @@
+replicaCount: 2
+
+config:
+  publicBaseUrl: https://go.example.internal
+  trustProxy: true
+
+database:
+  # Create this secret separately; never commit a Supabase password.
+  existingSecret: go-router-supabase
+  existingSecretKey: DATABASE_URL
+  migrationExistingSecretKey: MIGRATION_DATABASE_URL
+
+cloudSqlProxy:
+  enabled: false
+
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: go.example.internal
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: go-router-tls
+      hosts:
+        - go.example.internal

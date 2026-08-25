@@ -1,0 +1,124 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "go-router.fullname" . }}
+  labels:
+    {{- include "go-router.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "go-router.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/database: {{ default (include (print $.Template.BasePath "/secret.yaml") . | sha256sum) .Values.database.rolloutChecksum | quote }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "go-router.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "go-router.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automount }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: go-router
+          image: {{ include "go-router.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: HOST
+              value: 0.0.0.0
+            - name: PORT
+              value: "3000"
+            - name: PUBLIC_BASE_URL
+              value: {{ required "config.publicBaseUrl is required" .Values.config.publicBaseUrl | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.config.logLevel | quote }}
+            - name: TRUST_PROXY
+              value: {{ .Values.config.trustProxy | quote }}
+            - name: DB_POOL_MAX
+              value: {{ .Values.config.dbPoolMax | quote }}
+            - name: DB_IDLE_TIMEOUT_SECONDS
+              value: {{ .Values.config.dbIdleTimeoutSeconds | quote }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "go-router.databaseSecretName" . }}
+                  key: {{ .Values.database.existingSecretKey }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+        {{- if .Values.cloudSqlProxy.enabled }}
+        - name: cloud-sql-proxy
+          image: "{{ .Values.cloudSqlProxy.image.repository }}:{{ .Values.cloudSqlProxy.image.tag }}"
+          imagePullPolicy: {{ .Values.cloudSqlProxy.image.pullPolicy }}
+          {{- with .Values.cloudSqlProxy.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          args:
+            {{- if .Values.cloudSqlProxy.args }}
+            {{- toYaml .Values.cloudSqlProxy.args | nindent 12 }}
+            {{- else }}
+            {{- include "go-router.cloudSqlProxyArgs" . | nindent 12 }}
+            {{- end }}
+          startupProbe:
+            httpGet:
+              path: /startup
+              port: {{ .Values.cloudSqlProxy.healthPort }}
+            periodSeconds: 1
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /readiness
+              port: {{ .Values.cloudSqlProxy.healthPort }}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /liveness
+              port: {{ .Values.cloudSqlProxy.healthPort }}
+            periodSeconds: 10
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.cloudSqlProxy.resources | nindent 12 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

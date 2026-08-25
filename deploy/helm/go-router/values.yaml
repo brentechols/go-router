@@ -1,0 +1,145 @@
+replicaCount: 2
+
+image:
+  repository: ghcr.io/brentechols/go-router
+  pullPolicy: IfNotPresent
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+
+service:
+  type: ClusterIP
+  port: 80
+  annotations: {}
+  loadBalancerIP: ""
+  externalTrafficPolicy: ""
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: go.example.internal
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+config:
+  publicBaseUrl: http://go.example.internal
+  logLevel: info
+  trustProxy: true
+  dbPoolMax: 10
+  dbIdleTimeoutSeconds: 20
+
+database:
+  # Prefer existingSecret in production. The secret must contain the keys below.
+  existingSecret: ""
+  existingSecretKey: DATABASE_URL
+  migrationExistingSecretKey: MIGRATION_DATABASE_URL
+  # Set this to a new opaque value whenever an externally managed Secret changes.
+  # Inline chart-managed Secrets are checksummed automatically.
+  rolloutChecksum: ""
+  url: ""
+  migrationUrl: ""
+
+migrations:
+  enabled: true
+  # Pre-install hooks run before chart-managed ServiceAccounts exist. Keep the
+  # default for external Postgres, or name a pre-created WIF account for Cloud SQL.
+  serviceAccountName: default
+  command:
+    - node
+    - dist/server/migrate.js
+  annotations: {}
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      memory: 256Mi
+
+cloudSqlProxy:
+  enabled: false
+  image:
+    repository: gcr.io/cloud-sql-connectors/cloud-sql-proxy
+    tag: "2.25.3"
+    pullPolicy: IfNotPresent
+  connectionName: ""
+  # command/args are exposed for focused lifecycle tests and unusual wrappers.
+  # Empty values preserve the production Cloud SQL Auth Proxy entrypoint/flags.
+  command: []
+  args: []
+  privateIP: true
+  autoIamAuthn: false
+  port: 5432
+  healthPort: 9090
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+
+terminationGracePeriodSeconds: 30

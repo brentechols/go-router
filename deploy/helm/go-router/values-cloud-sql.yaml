@@ -1,0 +1,27 @@
+config:
+  publicBaseUrl: http://go.corp.example
+  trustProxy: true
+
+database:
+  existingSecret: go-router-database
+  existingSecretKey: DATABASE_URL
+  migrationExistingSecretKey: MIGRATION_DATABASE_URL
+
+serviceAccount:
+  annotations:
+    iam.gke.io/gcp-service-account: go-router@example-project.iam.gserviceaccount.com
+
+cloudSqlProxy:
+  enabled: true
+  connectionName: example-project:us-central1:go-router
+  privateIP: true
+
+migrations:
+  # This account must exist before Helm runs its pre-install hook.
+  serviceAccountName: go-router
+
+service:
+  type: LoadBalancer
+  annotations:
+    networking.gke.io/load-balancer-type: Internal
+  loadBalancerIP: 10.20.0.10

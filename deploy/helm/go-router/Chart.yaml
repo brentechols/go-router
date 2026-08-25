@@ -1,0 +1,12 @@
+apiVersion: v2
+name: go-router
+description: An open-source, self-hosted go links service
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.29.0-0"
+home: https://github.com/brentechols/go-router
+sources:
+  - https://github.com/brentechols/go-router
+annotations:
+  artifacthub.io/license: MIT

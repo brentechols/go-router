@@ -1,0 +1,49 @@
+# CI-only values that replace both production containers with BusyBox. The
+# rendered Job still uses the exact native-sidecar structure and probes shipped
+# by the chart, but does not require Cloud SQL or an application image.
+fullnameOverride: native-sidecar-test
+
+image:
+  repository: busybox
+  tag: "1.37.0"
+  pullPolicy: IfNotPresent
+
+database:
+  url: postgresql://test:test@127.0.0.1:5432/test
+
+migrations:
+  activeDeadlineSeconds: 90
+  backoffLimit: 0
+  command:
+    - /bin/sh
+    - -c
+    - echo migration-complete
+
+cloudSqlProxy:
+  enabled: true
+  image:
+    repository: busybox
+    tag: "1.37.0"
+    pullPolicy: IfNotPresent
+  command:
+    - /bin/sh
+    - -c
+  args:
+    - >-
+      mkdir -p /tmp/health;
+      printf ok > /tmp/health/startup;
+      printf ok > /tmp/health/readiness;
+      printf ok > /tmp/health/liveness;
+      exec httpd -f -p 9090 -h /tmp/health
+
+podSecurityContext:
+  runAsNonRoot: false
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+  readOnlyRootFilesystem: false
+  runAsNonRoot: false

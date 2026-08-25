@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
+.env
+.env.*
+!.env.example
+*.tfstate
+*.tfstate.*
+.terraform/
+terraform.tfvars
+.DS_Store
+Thumbs.db

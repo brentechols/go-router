@@ -1,0 +1,208 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  application:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: go_router
+          POSTGRES_USER: go_router
+          POSTGRES_PASSWORD: go_router
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U go_router -d go_router"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://go_router:go_router@127.0.0.1:5432/go_router
+      MIGRATION_DATABASE_URL: postgresql://go_router:go_router@127.0.0.1:5432/go_router
+      PUBLIC_BASE_URL: http://127.0.0.1:3000
+      PORT: 3000
+      HOST: 127.0.0.1
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/setup@v2
+        with:
+          version: 11.19.0
+          runtime: node@24
+          cache: true
+          install: false
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm db:migrate
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Run browser tests
+        shell: bash
+        run: |
+          pnpm start > /tmp/go-router.log 2>&1 &
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:3000/healthz >/dev/null; then
+              pnpm test:e2e
+              exit $?
+            fi
+            sleep 1
+          done
+          cat /tmp/go-router.log
+          exit 1
+
+  container:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: go_router
+          POSTGRES_USER: go_router
+          POSTGRES_PASSWORD: go_router
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U go_router -d go_router"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          load: true
+          tags: go-router:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke-test the production image
+        env:
+          DATABASE_URL: postgresql://go_router:go_router@127.0.0.1:5432/go_router
+        shell: bash
+        run: |
+          test "$(docker run --rm --entrypoint id go-router:ci -u)" = "10001"
+          docker run --rm --network host \
+            --env DATABASE_URL \
+            --env MIGRATION_DATABASE_URL="$DATABASE_URL" \
+            go-router:ci node dist/server/migrate.js
+
+          app_id=$(docker run --detach --network host --read-only \
+            --env DATABASE_URL \
+            --env PUBLIC_BASE_URL=http://127.0.0.1:3000 \
+            go-router:ci)
+          trap 'docker rm --force "$app_id" >/dev/null 2>&1 || true' EXIT
+
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:3000/readyz >/dev/null; then
+              break
+            fi
+            if [ "$attempt" = 30 ]; then
+              docker logs "$app_id"
+              exit 1
+            fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:3000/healthz >/dev/null
+
+          docker stop "${{ job.services.postgres.id }}" >/dev/null
+          for attempt in {1..15}; do
+            status=$(curl --silent --output /tmp/readyz-body --write-out '%{http_code}' \
+              http://127.0.0.1:3000/readyz)
+            if [ "$status" = 503 ]; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/readyz-body
+          exit 1
+
+  infrastructure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v5
+        with:
+          version: v4.2.0
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.15.9
+      - name: Validate Helm chart
+        run: |
+          helm lint deploy/helm/go-router --set-string database.url=postgresql://user:pass@postgres:5432/go_router
+          helm template go-router deploy/helm/go-router --set-string database.url=postgresql://user:pass@postgres:5432/go_router >/dev/null
+          helm template go-router deploy/helm/go-router -f deploy/helm/go-router/values-supabase.yaml >/dev/null
+          helm template go-router deploy/helm/go-router -f deploy/helm/go-router/values-cloud-sql.yaml >/dev/null
+      - name: Validate Terraform
+        working-directory: infra/terraform
+        run: |
+          terraform fmt -check -recursive
+          terraform init -backend=false
+          terraform validate
+
+  helm-native-sidecar:
+    name: Helm native sidecar (Kubernetes 1.29)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v5
+        with:
+          version: v4.2.0
+      - name: Create Kubernetes 1.29 kind cluster
+        # helm/kind-action v1.14.0, pinned to the current official release.
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc
+        with:
+          version: v0.27.0
+          kubectl_version: v1.29.14
+          node_image: kindest/node:v1.29.14@sha256:8703bd94ee24e51b778d5556ae310c6c0fa67d761fae6379c8e0bb480e6fea29
+          cluster_name: go-router-sidecar
+          wait: 120s
+      - name: Prove the migration sidecar terminates
+        shell: bash
+        run: |
+          set -euo pipefail
+          job_name=native-sidecar-test-migrate
+          manifest="$RUNNER_TEMP/native-sidecar-job.yaml"
+          pod_json="$RUNNER_TEMP/native-sidecar-pod.json"
+
+          diagnostics() {
+            kubectl get pods,jobs --all-namespaces --output=wide || true
+            kubectl describe job "$job_name" || true
+            kubectl logs "job/$job_name" --all-containers=true --prefix=true || true
+          }
+          trap diagnostics ERR
+
+          test "$(kubectl get --raw /version | jq --raw-output .gitVersion)" = "v1.29.14"
+          docker pull busybox:1.37.0
+          kind load docker-image busybox:1.37.0 --name go-router-sidecar
+
+          helm template native-sidecar deploy/helm/go-router \
+            --values .github/test-values/native-sidecar.yaml \
+            --show-only templates/migration-job.yaml > "$manifest"
+          kubectl apply --filename "$manifest"
+          kubectl wait --for=condition=complete "job/$job_name" --timeout=120s
+
+          kubectl get pods --selector="job-name=$job_name" --output=json > "$pod_json"
+          jq --exit-status '
+            (.items | length) == 1 and
+            .items[0].spec.initContainers[0].restartPolicy == "Always" and
+            .items[0].status.phase == "Succeeded" and
+            .items[0].status.initContainerStatuses[0].state.terminated != null and
+            .items[0].status.containerStatuses[0].state.terminated.exitCode == 0
+          ' "$pod_json"

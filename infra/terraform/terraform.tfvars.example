@@ -1,0 +1,16 @@
+project_id       = "my-gcp-project"
+region           = "us-central1"
+private_fqdn     = "go.corp.example"
+private_dns_zone = "corp.example"
+
+# Public GHCR is the default. Replace this with the repository you publish.
+image_repository = "ghcr.io/brentechols/go-router"
+image_tag        = "0.1.0"
+
+# Artifact Registry is optional and off by default. Enabling it creates an empty
+# repository; push image_tag there before applying the Helm release.
+enable_artifact_registry = false
+
+# Production suggestions:
+# database_availability_type = "REGIONAL"
+# tls_secret_name             = "go-router-tls"

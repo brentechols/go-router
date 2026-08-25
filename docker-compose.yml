@@ -1,0 +1,53 @@
+name: go-router
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: go_router
+      POSTGRES_USER: go_router
+      POSTGRES_PASSWORD: go_router
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U go_router -d go_router"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  migrate:
+    build:
+      context: .
+    command: ["node", "dist/server/migrate.js"]
+    environment:
+      DATABASE_URL: postgresql://go_router:go_router@postgres:5432/go_router
+      MIGRATION_DATABASE_URL: postgresql://go_router:go_router@postgres:5432/go_router
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    build:
+      context: .
+    environment:
+      DATABASE_URL: postgresql://go_router:go_router@postgres:5432/go_router
+      PUBLIC_BASE_URL: http://localhost:3000
+      PORT: 3000
+      HOST: 0.0.0.0
+      LOG_LEVEL: info
+      TRUST_PROXY: "false"
+      DB_POOL_MAX: 10
+      DB_IDLE_TIMEOUT_SECONDS: 20
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "3000:3000"
+    init: true
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
