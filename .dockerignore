@@ -7,3 +7,6 @@ playwright-report
 test-results
 infra
 *.md
+.env
+.env.*
+!.env.example
